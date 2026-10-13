@@ -7,6 +7,22 @@
 
 namespace asst
 {
+// 编组匹配三态结果，区分匹配成功、计划内不可用与识别失败，供调用方分支处理
+enum class GroupMatchResult
+{
+    Matched,        // 匹配成功（可用集已消耗并记录 m_last_matched_group_opers）
+    AllUnavailable, // 组名未定义或所有编组不可用
+    RecogFailed,    // 收集可用干员时识别失败，重试耗尽
+};
+
+// 房间换班意图判定结果，供各设施的空数组 / skip / 空意图拦截判定使用
+enum class RoomShiftIntent
+{
+    Shift,         // 照常换班
+    Skip,          // 该房间 skip，跳过全部处理，不发通知
+    KeepUnchanged, // 空数组或空意图，保持原样；函数内部已完成通知
+};
+
 class InfrastAbstractTask : public AbstractTask
 {
 public:
@@ -51,14 +67,37 @@ protected:
     void swipe_to_right_of_main_ui();
     void swipe_of_operlist();
     bool is_use_custom_opers();
+    // 当前房间在自定义配置里是否有对应的房间对象（rooms 数组写到了该 index）
+    // current_room_config() 越界时返回 static empty，与界内但字段全空的配置同形，需要区分两者时用本方法判定
+    bool is_room_config_specified() const;
+    // 房间对象存在但没有给出任何选人意图（operators/candidates 为空或缺失、未配置 autofill 与编组引用）时
+    // 保持房间原样，不回落默认算法自动选人；编组引用名占位于 names，names 非空即排除，函数本身不查 operator_groups；
+    // 训练室双槽位字段 operatorsA/operatorsB 解析进 trainee_names/assistant_names（仅训练室解析，其余设施恒空），
+    // 任一非空即视为有换人意图，同样排除空意图
+    bool is_room_config_without_intent() const;
+    // 判定保持房间原样时的统一通知：发 CustomInfrastRoomKeptUnchanged 回调与日志
+    void notify_room_kept_unchanged();
+    // rooms 显式写了该设施但房间数组为空：整个设施保持原样不换班，与缺失该设施键（走默认算法）的语义区分
+    bool is_facility_config_empty() const;
     infrast::CustomRoomConfig& current_room_config();
-    // 将定义的干员编组解释为具体干员，每次基建换班任务的第一次调用时缓存可用干员列表
-    bool match_operator_groups();
-    // 编组匹配用的可用干员列表，每次基建换班任务清空
+    const infrast::CustomRoomConfig& current_room_config() const;
+    // 统一判定当前房间的换班意图，顺序固定为 空数组 → skip → 空意图；
+    // KeepUnchanged（空数组或空意图）的通知在函数内部完成，Skip 只记日志不发通知。
+    // 循环型设施（mfg/trade/power/dorm）调用时注意：同一房间只应调用一次，
+    // 每次调用都会重新全量判定并重复发 KeepUnchanged 通知
+    RoomShiftIntent check_room_shift_intent() const;
+    // 将定义的干员编组解释为具体干员，可用集仅在为空时收集；识别失败在函数内重试，耗尽返回 RecogFailed
+    GroupMatchResult match_operator_groups();
+    // 编组匹配用的可用干员列表，每轮基建任务开始时由 InfrastTask 清空，轮内跨设施共享
     std::set<std::string> get_available_oper_for_group();
     void set_available_oper_for_group(std::set<std::string> opers);
+    // 把最近一次编组匹配占用的成员并回可用缓存，供选人未确认失败的整任务重试使用
+    void restore_last_matched_group_opers();
 
-    bool swipe_and_select_custom_opers(bool is_dorm_order = false);
+    /// @brief 按技能排序->清空干员->选择定制干员->按指定顺序排序
+    /// @param is_dorm_order 当前房间是不是宿舍
+    /// @param is_assistant_select 用于训练室协助者选择，名单是调用前临时改写的，不代表房间换班配置，不发换班回调
+    bool swipe_and_select_custom_opers(bool is_dorm_order = false, bool is_assistant_select = false);
     bool select_custom_opers(std::vector<std::string>& partial_result);
     // 扫描当前页满足心情条件的所有干员名
     bool get_opers(std::vector<std::string>& result, double mood = 1);
@@ -90,6 +129,10 @@ protected:
     int m_cur_facility_index = 0;
     bool m_is_custom = false;
     infrast::CustomFacilityConfig m_custom_config;
+    // 最近一次编组匹配成功并从可用缓存移除的成员；选人未确认失败时据此回补缓存，各选人确认点成功后即清空。
+    // mfg/trade 重跑轮从失败间接续、已成功房间不再重走，回补仅服务失败间的重新匹配；
+    // 已生效人员不得再回补（否则后续房间重新匹配到该组，选人复核失败再次回补，循环至重试耗尽）
+    std::vector<std::string> m_last_matched_group_opers;
     std::shared_ptr<infrast::TaskData> m_task_data;
     std::unordered_set<std::string> m_pending_operator_ids;
 };

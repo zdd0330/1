@@ -75,7 +75,7 @@ bool asst::InfrastReceptionTask::_run()
         return shift();
     }
 
-    Log.info("skip shift in rotation mode");
+    LogInfo << "skip shift in rotation mode";
     return true;
 }
 
@@ -331,8 +331,8 @@ bool asst::InfrastReceptionTask::shift()
 {
     LogTraceFunction;
 
-    if (m_is_custom && current_room_config().skip) {
-        Log.info("skip this room");
+    // 空数组与空意图均在此处拦截；留言板/线索收取/交流/赠送等设施级操作已在 shift 之前完成，不受影响
+    if (check_room_shift_intent() != RoomShiftIntent::Shift) {
         return true;
     }
 

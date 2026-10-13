@@ -23,6 +23,11 @@ bool asst::InfrastProcessingTask::_run()
 {
     m_all_available_opers.clear();
 
+    // 拦截统一走基类 check_room_shift_intent，非 Shift 视为本房间处理完成
+    if (check_room_shift_intent() != RoomShiftIntent::Shift) {
+        return true;
+    }
+
     // 不是自定义的也换不了加工站
     if (!is_use_custom_opers()) {
         Log.info("skip this room");
@@ -30,11 +35,6 @@ bool asst::InfrastProcessingTask::_run()
     }
     // 加工站，啥也造不了，随便写一个
     set_product("Placeholder");
-
-    if (current_room_config().skip) {
-        Log.info("skip this room");
-        return true;
-    }
 
     swipe_to_the_left_of_main_ui();
     if (!enter_facility()) {

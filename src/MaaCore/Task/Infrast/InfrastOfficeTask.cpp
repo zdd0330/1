@@ -8,12 +8,14 @@ bool asst::InfrastOfficeTask::_run()
 {
     m_all_available_opers.clear();
 
-    // 办公室只能造这一个
-    set_product("HR");
-    if (m_is_custom && current_room_config().skip) {
-        Log.info("skip this room");
+    // 拦截统一走基类 check_room_shift_intent，非 Shift 视为本房间处理完成
+    if (check_room_shift_intent() != RoomShiftIntent::Shift) {
         return true;
     }
+
+    // 办公室只能造这一个
+    set_product("HR");
+
     swipe_to_the_left_of_main_ui();
     if (!enter_facility()) {
         swipe_to_right_of_main_ui();

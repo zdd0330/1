@@ -11,20 +11,28 @@ bool asst::InfrastPowerTask::_run()
     // 发电站只能造这一个
     set_product("Drone");
 
+    // rooms 数组为空时整设施保持原样；
+    // skip 与空意图不在设施入口判定，留在循环内进设施前按时序消费
+    if (is_facility_config_empty() && check_room_shift_intent() == RoomShiftIntent::KeepUnchanged) {
+        return true;
+    }
+
     for (; m_cur_facility_index != static_cast<int>(max_num_of_facilities()); ++m_cur_facility_index) {
         if (need_exit()) {
             return false;
         }
-        if (m_is_custom && current_room_config().skip) {
-            Log.info("skip this room");
+        // 空数组已在此前消费，此处结果只可能 Skip、KeepUnchanged（空意图）或 Shift
+        if (check_room_shift_intent() != RoomShiftIntent::Shift) {
             continue;
         }
+
         swipe_to_the_left_of_main_ui();
 
         // 进不去说明设施数量不够
         if (!enter_facility(m_cur_facility_index)) {
             break;
         }
+
         if (!enter_oper_list_page()) {
             return false;
         }

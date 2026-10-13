@@ -58,7 +58,7 @@ Please note that JSON files do not support comments. The comments in this docume
                 "order": "pre" // Use before operator changes or after, optional, values "pre"/"post", default "pre"
             },
             "groups": [
-                // For "control"/"manufacture"/"trading", you can set operator groups
+                // For "control"/"manufacture"/"trading"/"recycle", you can set operator groups
                 {
                     "name": "古+银", // ("古+银" = "Gummy+Silver")
                     "operators": ["古米", "银灰", "梅"] // ("古米" = "Gummy", "银灰" = "SilverAsh", "梅" = "Plum")
@@ -70,10 +70,12 @@ Please note that JSON files do not support comments. The comments in this docume
             ],
             "rooms": {
                 // Room information, required
-                // Values: "control"/"manufacture"/"trading"/"power"/"meeting"/"hire"/"dormitory"/"processing" / "training" / "recycle"
-                // A/B groups for training / recycle are a draft, not yet supported by MAA custom scheduling
+                // Values: "control"/"manufacture"/"trading"/"power"/"meeting"/"hire"/"dormitory"/"processing"/"training"/"recycle"
                 // Missing rooms use default algorithm for shift change.
-                // To skip a room, use skip field or uncheck the facility in software Task Settings - Base Management - General Settings
+                // If a facility array holds fewer room entries than actual rooms, shift change stops from the first unconfigured room onward for that facility.
+                // A room entry written without any staffing intent (operators/candidates empty or missing, no autofill or operator groups) only skips operator replacement for that room, keeps its current staff unchanged and emits a ｢room kept as-is｣ callback; other fields such as product are still processed
+                // The skip field likewise only skips operator replacement for that room; facility-level actions are unaffected (e.g. the meeting room's clue flow and the training room's continue training still run). The difference is that skip only logs, while empty intent emits the ｢room kept as-is｣ callback
+                // To skip a room, use skip field or uncheck the facility in software Task Settings - Base Management
                 "control": [
                 {
                     "operators": [
@@ -94,7 +96,7 @@ Please note that JSON files do not support comments. The comments in this docume
                 },
                 {
                     "skip": true // Whether to skip current room (by array index), optional, default false
-                    // If true, other fields can be empty. Only skips operator change operation, other actions like drone usage, clue exchange still occur
+                    // If true, other fields can be empty. Only skips operator change operation; facility-level actions are unaffected, e.g. drone usage, clue exchange, and the training room's continue training still occur
                 },
                 {
                     "operators": ["Castle-3"],
@@ -109,7 +111,8 @@ Please note that JSON files do not support comments. The comments in this docume
                 {
                     "operators": ["多萝西"], // ("多萝西" = "Dorothy")
                     "candidates": [
-                        // Backup operators, optional. Uses whoever's available until positions filled
+                        // Backup operators, optional. Uses whoever's available until positions filled;
+                        // operators currently working in other facilities are never selected (excluded at selection time)
                         // Incompatible with autofill=true, i.e., autofill must be false when this array not empty
                         "星源", // ("星源" = "Astgenne")
                         "白面鸮", // ("白面鸮" = "Ptilopsis")
@@ -122,6 +125,7 @@ Please note that JSON files do not support comments. The comments in this docume
                         // When enabled, names in operators are interpreted as group names
                         "古+银", // Will select groups by mood threshold and setting order ("古+银" = "Gummy+Silver")
                         "清流" // If Gummy+Silver group has operators below threshold, will use Purestream group ("清流" = "Purestream")
+                        // If all groups are unavailable, the candidates list still applies; with neither candidates nor autofill configured, the room stays unchanged without falling back to the default algorithm
                     ]
                 }
                 ],
@@ -130,17 +134,33 @@ Please note that JSON files do not support comments. The comments in this docume
                         "autofill": true // Completely autofill this room
                     }
                 ],
-                "training": [ // Training Room
+                "training": [ // Training Room, configures the trainee slot and the assistant slot
                     {
-                        // Capacities, omitted/empty fields and interactions with existing room fields and operator groups are undecided
-                        "operatorsA": ["Amiya"], // Training assistant names (slot A), optional array; naming requirements as in operators
-                        "operatorsB": ["Dobermann"] // Trainee names (slot B), optional array; naming requirements as in operators
+                        // Trainee slot candidates, optional; when omitted the trainee slot operator is not
+                        // changed. The first candidate present in the in-game selection list is staffed.
+                        // Staffing is subject to the trainee slot's eligibility restriction: the operator
+                        // must be promoted to elite 2 with at least one skill below max mastery;
+                        // operators with all masteries maxed never appear in the list, so configuring
+                        // them is effectively a skip. While training is in progress the trainee slot is
+                        // locked and cannot be changed. Staffing alone does not start a new training
+                        // session; starting mastery training still requires a manual tap. Naming
+                        // requirements as in operators
+                        "operatorsA": ["SilverAsh"],
+                        // Assistant candidates, optional; no assistant is selected when omitted. The
+                        // assistant slot has no eligibility restriction like the trainee slot, so any
+                        // operator can be staffed there; this also covers skills of operators working
+                        // in other facilities that need ｢an operator of the same faction staffed in the
+                        // base for higher efficiency｣ (put one matching-faction operator in operatorsB).
+                        // Naming requirements as in operators
+                        "operatorsB": ["Dobermann"]
+                        // Generic roomConfig fields such as operators/candidates have no effect on the training room; only skip and operatorsA/operatorsB take effect
+                        // ｢Continue training｣ is a standalone GUI option outside the schedule file and is unaffected by the three room states; with an empty array, skip, or empty intent, continue training still runs and only operator replacement is skipped
+                        // When ｢continue training｣ is enabled, the shift-change flow first tries to continue the current operator's mastery training; on success the trainee slot stays unchanged and only the assistant is replaced per configuration, otherwise (materials insufficient or mastery already maxed) it falls back to replacing the trainee slot operator per configuration
                     }
                 ],
-                "recycle": [ // 回收站, a planned facility with A/B slots; key provisional
+                "recycle": [ // 回收站, two slots without role distinction, same format as manufacture, product field has no effect
                     {
-                        "operatorsA": ["Fang"], // Operator names in the first unlocked position (slot A), optional array; naming requirements as in operators
-                        "operatorsB": ["Kroos"] // Operator names in the second unlocked position (slot B), optional array; naming requirements as in operators
+                        "operators": ["Fang", "Kroos"]
                     }
                 ]
             }
@@ -198,7 +218,8 @@ Combine the example with base protocol fields such as `plans`. Progression and v
         { "type": "dormitory", "level": 1, "position": "B104" },
         { "type": "dormitory", "level": 1, "position": "B204" },
         { "type": "dormitory", "level": 1, "position": "B304" },
-        { "type": "dormitory", "level": 1, "position": "B404" }
+        { "type": "dormitory", "level": 1, "position": "B404" },
+        { "type": "recycle", "level": 1, "position": "B405" }
     ],
     "operators": { // Operator progression, optional; keyed by in-game IDs
         // Does not replace room assignments
